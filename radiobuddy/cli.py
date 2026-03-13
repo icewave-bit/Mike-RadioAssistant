@@ -309,8 +309,8 @@ def main(argv: Optional[list[str]] = None) -> None:
     from .stt import build_stt_client
     from .tts import build_tts_client
 
-    stt_client = build_stt_client(cfg.stt)
-    llm_client = build_llm_client(cfg.llm)
+    stt_client = build_stt_client(cfg.stt, cfg.mode)
+    llm_client = build_llm_client(cfg.llm, cfg.mode)
     tts_client = build_tts_client(cfg.tts)
 
     pipeline = RadioBuddyPipeline(cfg, stt_client, llm_client, tts_client, ui=ui)

@@ -81,7 +81,16 @@ class DummyLlmClient:
         return reply
 
 
-def build_llm_client(cfg: LlmConfig):
+def build_llm_client(cfg: LlmConfig, mode: str = "ai"):
+    """
+    Build an LLM client based on configuration and app mode.
+
+    In "dummy" mode we always return the offline dummy client, regardless of
+    whether an API key is configured, so that the pipeline remains fully offline.
+    """
+    if mode == "dummy":
+        return DummyLlmClient()
+
     # If no API key is set, fall back to a dummy LLM client so the
     # pipeline can be tested without external services.
     if not cfg.api_key:

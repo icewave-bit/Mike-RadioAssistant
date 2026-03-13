@@ -50,10 +50,15 @@ class DummySttClient:
         return "test message over radio"
 
 
-def build_stt_client(cfg: SttConfig):
+def build_stt_client(cfg: SttConfig, mode: str = "ai"):
     # For now we only support Whisper; provider switch is future work.
     if cfg.provider.lower() != "whisper":
         raise ValueError(f"Unsupported STT provider: {cfg.provider}")
+
+    # In "dummy" mode we always return the offline dummy client, regardless of
+    # whether an API key is configured, so that the pipeline remains fully offline.
+    if mode == "dummy":
+        return DummySttClient()
 
     # If no API key is set, fall back to a dummy STT client so the
     # pipeline can be tested without external services.

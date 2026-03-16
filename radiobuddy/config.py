@@ -29,6 +29,9 @@ class SttConfig:
     model: str
     base_url: Optional[str]
     language: Optional[str]
+    timeout_seconds: float
+    max_retries: int
+    backoff_base_seconds: float
 
 
 @dataclass
@@ -37,12 +40,16 @@ class LlmConfig:
     base_url: Optional[str]
     model: str
     system_prompt: str
+    timeout_seconds: float
+    max_retries: int
+    backoff_base_seconds: float
 
 
 @dataclass
 class TtsConfig:
     voice: Optional[str]
     piper_model_path: Optional[str]
+    rate: Optional[int]
 
 
 @dataclass
@@ -53,6 +60,7 @@ class AppConfig:
     llm: LlmConfig
     tts: TtsConfig
     mode: str
+    reset_phrases: list[str]
 
 
 def load_config() -> AppConfig:
@@ -77,6 +85,9 @@ def load_config() -> AppConfig:
         model=os.getenv("STT_MODEL", "whisper-1"),
         base_url=os.getenv("WHISPER_BASE_URL") or os.getenv("GPT5_NANO_BASE_URL") or None,
         language=os.getenv("STT_LANGUAGE") or None,
+        timeout_seconds=float(os.getenv("STT_TIMEOUT_SECONDS", "20")),
+        max_retries=int(os.getenv("STT_MAX_RETRIES", "3")),
+        backoff_base_seconds=float(os.getenv("STT_BACKOFF_BASE_SECONDS", "1")),
     )
 
     llm = LlmConfig(
@@ -87,16 +98,57 @@ def load_config() -> AppConfig:
             "AI_SYSTEM_PROMPT",
             "You are a concise VHF radio assistant. Reply in short, clear sentences.",
         ),
+        timeout_seconds=float(os.getenv("LLM_TIMEOUT_SECONDS", "20")),
+        max_retries=int(os.getenv("LLM_MAX_RETRIES", "3")),
+        backoff_base_seconds=float(os.getenv("LLM_BACKOFF_BASE_SECONDS", "1")),
     )
 
     tts = TtsConfig(
         voice=os.getenv("MACOS_TTS_VOICE") or None,
         piper_model_path=os.getenv("PIPER_MODEL_PATH") or None,
+        rate=int(os.getenv("MACOS_TTS_RATE")) if os.getenv("MACOS_TTS_RATE") else None,
     )
 
     mode = os.getenv("MODE", "ai").strip().lower()
     if mode not in ("ai", "dummy", "repeater"):
         mode = "ai"
+
+    # Voice commands that reset the LLM conversation history.
+    # Use a delimiter unlikely to appear in phrases themselves.
+    default_reset_phrases = "|".join(
+        [
+            "reset radiobuddy",
+            "reset radio buddy",
+            "clear history",
+            "reset conversation",
+            "reset brain",
+            "start fresh",
+            "wipe brains",
+            "history delete",
+            "delete history",
+            "forget history",
+            "clear brain",
+            "forget brain",
+            "forget everything",
+            "forget all",
+            "mike, forget",
+            "mike, forget history",
+            "mike, forget brain",
+            "mike, forget everything",
+            "mike, forget all",
+            "mike, reset",
+            "mike, reset conversation",
+            "mike, reset brain",
+            "mike, start fresh",
+            "mike, wipe brains",
+            "mike, history delete",
+            "mike, delete history",
+            "mike, clear brain",
+            "new mike",
+        ]
+    )
+    reset_raw = os.getenv("RADIOBUDDY_RESET_PHRASES", default_reset_phrases)
+    reset_phrases = [p.strip().lower() for p in reset_raw.split("|") if p.strip()]
 
     return AppConfig(
         audio=audio,
@@ -105,5 +157,6 @@ def load_config() -> AppConfig:
         llm=llm,
         tts=tts,
         mode=mode,
+        reset_phrases=reset_phrases,
     )
 

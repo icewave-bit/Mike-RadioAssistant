@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import List, Optional
 
 from openai import OpenAI
@@ -12,10 +13,17 @@ class GptNanoClient:
         client_kwargs: dict[str, object] = {"api_key": cfg.api_key}
         if cfg.base_url:
             client_kwargs["base_url"] = cfg.base_url
-        self._client = OpenAI(api_key=cfg.api_key, base_url=cfg.base_url)
+        # Use a single OpenAI client with explicit kwargs so we can
+        # consistently attach timeouts and other settings per request.
+        self._client = OpenAI(**client_kwargs)
         self._cfg = cfg
         # Alternating user/assistant chat history (system prompt is injected per call).
         self._history: List[dict[str, str]] = []
+
+        # Basic network robustness settings, driven by configuration.
+        self._timeout_seconds = cfg.timeout_seconds
+        self._max_retries = cfg.max_retries
+        self._backoff_base_seconds = cfg.backoff_base_seconds
 
     def reset_history(self) -> None:
         """Clear conversation history for this client instance."""
@@ -39,10 +47,23 @@ class GptNanoClient:
             {"role": "user", "content": user_message},
         ]
 
-        resp = self._client.chat.completions.create(
-            model=self._cfg.model,
-            messages=messages,
-        )
+        last_error: Optional[Exception] = None
+        for attempt in range(1, self._max_retries + 1):
+            try:
+                resp = self._client.chat.completions.create(
+                    model=self._cfg.model,
+                    messages=messages,
+                    timeout=self._timeout_seconds,
+                )
+                break
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                if attempt >= self._max_retries:
+                    raise
+                # Exponential backoff with jitter could be added; keep simple for now.
+                sleep_for = self._backoff_base_seconds * (2 ** (attempt - 1))
+                time.sleep(sleep_for)
+
         choice = resp.choices[0]
         content: Optional[str] = choice.message.content if choice and choice.message else None
         reply = content or ""

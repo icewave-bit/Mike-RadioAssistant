@@ -1,6 +1,6 @@
 # RadioBuddy – VHF Radio ↔ Voice AI Pipeline
 
-RadioBuddy turns a computer with a USB audio dongle into a VOX‑driven AI assistant over VHF radio:
+RadioBuddy turns a computer with a USB audio dongle into a VOX‑driven AI assistant over VHF radio (including Russian STT/TTS):
 
 - **Audio in** from radio → **Whisper STT**
 - **GPT‑5 Nano** for AI replies
@@ -21,16 +21,20 @@ sudo apt update
 sudo apt install -y portaudio19-dev
 ```
 
-## Setup
+## Setup (with `mise` + `uv` or plain `pip`)
 
 ```bash
 cd RadioBuddy
 
+# Option 1: use mise + uv (recommended)
+mise install           # creates .venv using uv and installs tools from mise.toml
+mise run start         # runs python run.py
+
+# Option 2: plain venv + pip
 python3 -m venv .venv
 source .venv/bin/activate
-
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python -m pip install -e .
 ```
 
 Create a `.env` file in the project root based on `.env.example`:
@@ -41,7 +45,7 @@ cp .env.example .env
 
 Fill in your API keys and adjust audio/VOX settings as needed.
 
-### Linux (Mint) TTS setup (Piper, local/offline)
+### Linux (Mint) TTS setup (Piper, local/offline, including Russian)
 
 On Linux, RadioBuddy uses **Piper** for local TTS. You need to install Piper and provide a voice model path.
 
@@ -51,7 +55,7 @@ Install the Python package:
 python -m pip install piper-tts
 ```
 
-Download a voice model (example: `en_US-lessac-medium`):
+Download a voice model (example English: `en_US-lessac-medium`, example Russian: `ru_RU-irina-medium`):
 
 ```bash
 python -m piper.download_voices en_US-lessac-medium
@@ -60,7 +64,10 @@ python -m piper.download_voices en_US-lessac-medium
 Set `PIPER_MODEL_PATH` in your `.env` to the downloaded `.onnx` model file path, for example:
 
 ```bash
+# English
 PIPER_MODEL_PATH=/absolute/path/to/en_US-lessac-medium.onnx
+# or Russian
+PIPER_MODEL_PATH=/absolute/path/to/ru_RU-irina-medium.onnx
 ```
 
 ## Configuration
@@ -70,18 +77,24 @@ Key variables (see `.env.example` for the full list):
 - `GPT5_NANO_API_KEY`, `GPT5_NANO_BASE_URL`, `GPT5_NANO_MODEL`
 - `AI_SYSTEM_PROMPT`
 - `WHISPER_API_KEY`, `STT_PROVIDER`, `STT_MODEL`, `STT_LANGUAGE`
-- `MACOS_TTS_VOICE`
-- `PIPER_MODEL_PATH` (Linux only)
+- `MACOS_TTS_VOICE` (e.g. a Russian-capable voice like `Milena` on macOS)
+- `MACOS_TTS_RATE` (optional speech rate for macOS `say`, e.g. `180`)
+- `PIPER_MODEL_PATH` (Linux only, e.g. a Russian voice model like `ru_RU-irina-medium`)
 - `AUDIO_INPUT_DEVICE`, `AUDIO_OUTPUT_DEVICE`, `SAMPLE_RATE`, `CHUNK_SECONDS`
 - `VOX_THRESHOLD_DB`, `VOX_MIN_DURATION_MS`
 
 ## Running
 
-Activate your virtualenv and then:
+Activate your virtualenv and then, for the simplest start:
+
+```bash
+python run.py
+```
+
+You can also use the CLI module directly:
 
 ```bash
 python -m radiobuddy list-devices  # optional: list audio devices
-
 python -m radiobuddy run --interactive-devices
 ```
 

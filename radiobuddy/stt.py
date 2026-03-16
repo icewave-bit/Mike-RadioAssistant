@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import tempfile
+import time
 from typing import Optional
-
 import numpy as np
 import soundfile as sf
 from openai import OpenAI
@@ -16,7 +16,11 @@ class WhisperSttClient:
         client_kwargs: dict[str, object] = {"api_key": cfg.api_key}
         if cfg.base_url:
             client_kwargs["base_url"] = cfg.base_url
-        self._client = OpenAI(api_key=cfg.api_key, base_url=cfg.base_url)
+        self._client = OpenAI(**client_kwargs)
+        # Basic network robustness settings, driven by configuration.
+        self._timeout_seconds = cfg.timeout_seconds
+        self._max_retries = cfg.max_retries
+        self._backoff_base_seconds = cfg.backoff_base_seconds
 
     def transcribe(self, audio: np.ndarray, sample_rate: int) -> str:
         """
@@ -28,12 +32,23 @@ class WhisperSttClient:
         # Write to a temporary WAV file for the Whisper API.
         with tempfile.NamedTemporaryFile(suffix=".wav") as tmp:
             sf.write(tmp.name, audio, sample_rate)
-            with open(tmp.name, "rb") as f:
-                resp = self._client.audio.transcriptions.create(
-                    model=self._cfg.model,
-                    file=f,
-                    language=self._cfg.language,
-                )
+            last_error: Optional[Exception] = None
+            for attempt in range(1, self._max_retries + 1):
+                try:
+                    with open(tmp.name, "rb") as f:
+                        resp = self._client.audio.transcriptions.create(
+                            model=self._cfg.model,
+                            file=f,
+                            language=self._cfg.language,
+                            timeout=self._timeout_seconds,
+                        )
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    last_error = exc
+                    if attempt >= self._max_retries:
+                        raise
+                    sleep_for = self._backoff_base_seconds * (2 ** (attempt - 1))
+                    time.sleep(sleep_for)
         text: Optional[str] = getattr(resp, "text", None)
         return text or ""
 
@@ -47,7 +62,7 @@ class DummySttClient:
         if audio.size == 0:
             return ""
         # Simple fixed transcription just to exercise the pipeline.
-        return "test message over radio"
+        return "пробное сообщение по радио"
 
 
 def build_stt_client(cfg: SttConfig, mode: str = "ai"):

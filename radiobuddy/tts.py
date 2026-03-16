@@ -26,10 +26,13 @@ class MacTts:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = Path(tmpdir) / "tts.aiff"
-            cmd = ["say", "-o", str(out_path)]
+            # Ensure voice option is applied before output option so macOS 'say' respects it.
+            cmd = ["say"]
             if self._cfg.voice:
                 cmd.extend(["-v", self._cfg.voice])
-            cmd.append(text)
+            if getattr(self._cfg, "rate", None):
+                cmd.extend(["-r", str(self._cfg.rate)])
+            cmd.extend(["-o", str(out_path), text])
             subprocess.run(cmd, check=True)
 
             data, sr = sf.read(str(out_path), dtype="float32")

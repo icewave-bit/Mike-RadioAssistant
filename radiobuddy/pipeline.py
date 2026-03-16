@@ -41,6 +41,22 @@ class RadioBuddyPipeline:
             self._output_device_index if self._output_device_index is not None else "default",
         )
 
+    def _resample_to_config_rate(self, audio: np.ndarray, sr: int) -> tuple[np.ndarray, int]:
+        """Resample audio to the configured sample rate if needed."""
+        target_sr = self._cfg.audio.sample_rate
+        if sr == target_sr:
+            return audio, sr
+
+        factor = target_sr / sr
+        new_len = int(len(audio) * factor)
+        if new_len <= 0 or len(audio) == 0:
+            return audio.astype("float32"), target_sr
+
+        x_old = np.arange(len(audio))
+        x_new = np.linspace(0, len(audio) - 1, new_len)
+        resampled = np.interp(x_new, x_old, audio).astype("float32")
+        return resampled, target_sr
+
     def _record_segment(self):
         return record_segment_vox(
             input_device=self._input_device_index,
@@ -63,12 +79,7 @@ class RadioBuddyPipeline:
             sr,
         )
 
-        if sr != self._cfg.audio.sample_rate:
-            factor = self._cfg.audio.sample_rate / sr
-            indices = (np.arange(int(len(audio) * factor)) / factor).astype(int)
-            indices = np.clip(indices, 0, len(audio) - 1)
-            audio = audio[indices]
-            sr = self._cfg.audio.sample_rate
+        audio, sr = self._resample_to_config_rate(audio, sr)
 
         logger.info("Playing phrase TTS to radio output")
         play_audio(audio, sr, self._output_device_index)
@@ -132,39 +143,7 @@ class RadioBuddyPipeline:
 
             # Voice command to reset the AI conversation history.
             normalized = text.strip().lower()
-            if any(
-                phrase in normalized
-                for phrase in (
-                    "reset radiobuddy",
-                    "reset radio buddy",
-                    "clear history",
-                    "reset conversation",
-                    "reset brain",
-                    "start fresh",
-                    "wipe brains",
-                    "history delete",
-                    "delete history",
-                    "forget history",
-                    "clear brain",
-                    "forget brain",
-                    "forget everything",
-                    "forget all",
-                    "mike, forget",
-                    "mike, forget history",
-                    "mike, forget brain",
-                    "mike, forget everything",
-                    "mike, forget all",
-                    "mike, reset",
-                    "mike, reset conversation",
-                    "mike, reset brain",
-                    "mike, start fresh",
-                    "mike, wipe brains",
-                    "mike, history delete",
-                    "mike, delete history",
-                    "mike, clear brain",
-                    "new mike",
-                )
-            ):
+            if any(phrase in normalized for phrase in self._cfg.reset_phrases):
                 logger.info("Received history reset voice command; clearing LLM history.")
                 reset_fn = getattr(self._llm, "reset_history", None)
                 if callable(reset_fn):
@@ -219,13 +198,7 @@ class RadioBuddyPipeline:
             try:
                 audio, sr = self._tts.synthesize_to_array(reply)
                 logger.info("Synthesized TTS audio of %d samples at %d Hz", len(audio), sr)
-
-                if sr != self._cfg.audio.sample_rate:
-                    factor = self._cfg.audio.sample_rate / sr
-                    indices = (np.arange(int(len(audio) * factor)) / factor).astype(int)
-                    indices = np.clip(indices, 0, len(audio) - 1)
-                    audio = audio[indices]
-                    sr = self._cfg.audio.sample_rate
+                audio, sr = self._resample_to_config_rate(audio, sr)
 
                 logger.info("Playing TTS to radio output")
                 play_audio(audio, sr, self._output_device_index)

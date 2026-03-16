@@ -215,8 +215,10 @@ def play_audio(
     # Normalize to avoid clipping; simple peak normalization.
     peak = float(np.max(np.abs(audio)))
     if peak > 0:
-        audio = audio / peak * 0.8
+        audio = (audio.astype("float64") / peak * 0.8).astype("float32")
+    else:
+        audio = audio.astype("float32")
 
-    sd.play(audio.astype("float32"), samplerate=sample_rate, device=output_device)
+    sd.play(audio, samplerate=sample_rate, device=output_device)
     sd.wait()
 

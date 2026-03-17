@@ -128,6 +128,7 @@ def record_segment_vox(
     silence_timeout_sec: float = 5.0,
     on_level: Optional[Callable[[float], None]] = None,
     on_started: Optional[Callable[[], None]] = None,
+    on_chunk: Optional[Callable[[np.ndarray], None]] = None,
     stop_event: Optional[threading.Event] = None,
 ) -> Optional[np.ndarray]:
     """
@@ -164,6 +165,8 @@ def record_segment_vox(
                     return None
                 data, _ = stream.read(level_block_frames)
                 data = data.astype("float32").reshape(-1)
+                if on_chunk is not None:
+                    on_chunk(data)
                 level_db = rms_db(data)
                 if on_level is not None:
                     on_level(level_db)

@@ -83,6 +83,22 @@ Key variables (see `.env.example` for the full list):
 - `AUDIO_INPUT_DEVICE`, `AUDIO_OUTPUT_DEVICE`, `SAMPLE_RATE`, `CHUNK_SECONDS`
 - `VOX_THRESHOLD_DB`, `VOX_MIN_DURATION_MS`
 
+### DTMF control channel
+
+RadioBuddy can listen for classic phone DTMF tones on the audio input and use them as a simple “remote control” over the radio.
+
+- **Enable / basic config** (see `.env.example`):
+  - `DTMF_ENABLED` – turn DTMF control on/off (default: on).
+  - `DTMF_SECRET` – “open” prefix, default `0909`.
+  - Timing / detection tuning: `DTMF_COMMAND_TIMEOUT_SEC`, `DTMF_DIGIT_GAP_TIMEOUT_SEC`, `DTMF_FRAME_MS`, `DTMF_HOP_MS`, `DTMF_MIN_TONE_MS`, `DTMF_ENERGY_GATE_DB`, `DTMF_PEAK_RATIO`, `DTMF_BANDPASS_ENABLED`.
+- **Built-in commands** (after sending the secret `0909`):
+  - `01` – switch to AI mode.
+  - `02` – switch to repeater mode.
+  - `03` – switch to dummy/offline mode.
+  - `11` – Kira announces current local time.
+
+Example sequence over the radio: dial `0909` to open, then `01` to switch to AI mode. The app confirms over TTS: “Кира передает – Код принят – команда 01” and then “Кира передает – Режим 01”.
+
 ## Running
 
 Activate your virtualenv and then, for the simplest start:

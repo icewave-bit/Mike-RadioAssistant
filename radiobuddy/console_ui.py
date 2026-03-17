@@ -61,6 +61,8 @@ class RadioBuddyUI:
         self._status = "Stand By"
         self._last_heard = "—"
         self._last_reply = "—"
+        self._last_dtmf = "—"
+        self._last_dtmf_event = "—"
         self._speech_detected = False
 
     def _build_level_meter(self) -> Panel:
@@ -104,6 +106,14 @@ class RadioBuddyUI:
         table.add_row(
             Text("Reply:", style="bold green"),
             Text(self._last_reply, style="white"),
+        )
+        table.add_row(
+            Text("DTMF:", style="bold magenta"),
+            Text(self._last_dtmf, style="white"),
+        )
+        table.add_row(
+            Text("DTMF evt:", style="bold magenta"),
+            Text(self._last_dtmf_event, style="white"),
         )
         return Panel(
             table,
@@ -234,6 +244,12 @@ class RadioBuddyUI:
 
     def set_last_reply(self, text: str) -> None:
         self._last_reply = text or "—"
+
+    def set_last_dtmf(self, digits: str) -> None:
+        self._last_dtmf = digits or "—"
+
+    def set_last_dtmf_event(self, text: str) -> None:
+        self._last_dtmf_event = text or "—"
 
     def set_speech_detected(self, detected: bool) -> None:
         self._speech_detected = detected

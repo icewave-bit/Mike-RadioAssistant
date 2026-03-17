@@ -95,6 +95,34 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Print only device list (no extra text).",
     )
 
+    p_dtmf = sub.add_parser(
+        "dtmf-test",
+        help="Decode DTMF digits from a WAV/AIFF/FLAC file (offline).",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p_dtmf.add_argument(
+        "--wav",
+        required=True,
+        help="Path to an audio file containing DTMF tones.",
+    )
+    p_dtmf.add_argument(
+        "--stream-ms",
+        type=int,
+        default=50,
+        help="Chunk size for streaming decode (ms).",
+    )
+
+    p_gen = sub.add_parser(
+        "dtmf-generate",
+        help="Generate a clean DTMF WAV (for testing your audio path).",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p_gen.add_argument("--digits", default="0909", help="Digit string to generate.")
+    p_gen.add_argument("--out", required=True, help="Output WAV path.")
+    p_gen.add_argument("--sr", type=int, default=8000, help="Sample rate for output WAV.")
+    p_gen.add_argument("--tone-ms", type=int, default=140, help="Tone duration per digit (ms).")
+    p_gen.add_argument("--gap-ms", type=int, default=70, help="Silence gap between digits (ms).")
+
     return parser
 
 
@@ -275,6 +303,39 @@ def main(argv: Optional[list[str]] = None) -> None:
         if not args.raw:
             print("Available audio devices:")
         list_devices()
+        return
+
+    if args.command == "dtmf-test":
+        import soundfile as sf
+
+        from .dtmf import DtmfDecoder, DtmfDecoderConfig
+
+        data, sr = sf.read(str(args.wav), dtype="float32")
+        if data.ndim == 2:
+            data = data.mean(axis=1)
+        data = data.astype("float32")
+
+        dec = DtmfDecoder(DtmfDecoderConfig(sample_rate=int(sr)))
+        chunk = max(64, int(int(sr) * (float(args.stream_ms) / 1000.0)))
+        out: list[str] = []
+        for i in range(0, data.size, chunk):
+            out.extend(dec.process(data[i : i + chunk]))
+        print("".join(out))
+        return
+
+    if args.command == "dtmf-generate":
+        import soundfile as sf
+
+        from .dtmf import synthesize_dtmf
+
+        wav = synthesize_dtmf(
+            digits=str(args.digits),
+            sample_rate=int(args.sr),
+            tone_ms=int(args.tone_ms),
+            gap_ms=int(args.gap_ms),
+        )
+        sf.write(str(args.out), wav, int(args.sr))
+        print(str(args.out))
         return
 
     if args.command != "run":

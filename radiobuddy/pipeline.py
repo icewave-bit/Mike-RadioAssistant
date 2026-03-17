@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import logging
+import queue
+import threading
+import time
+from datetime import datetime
 from typing import TYPE_CHECKING, Optional, Union
 
 import numpy as np
@@ -10,6 +14,8 @@ from .config import AppConfig
 from .llm import GptNanoClient
 from .stt import WhisperSttClient
 from .tts import MacTts, PiperTts
+from .dtmf import DtmfDecoder, DtmfDecoderConfig
+from .tone_control import ToneController, ToneControlConfig, ToneEvent
 
 if TYPE_CHECKING:
     from .console_ui import RadioBuddyUI
@@ -34,6 +40,32 @@ class RadioBuddyPipeline:
 
         self._input_device_index: Optional[int] = resolve_device(cfg.audio.input_device, "input")
         self._output_device_index: Optional[int] = resolve_device(cfg.audio.output_device, "output")
+
+        self._stop_event = threading.Event()
+        self._tone_events: "queue.Queue[ToneEvent]" = queue.Queue()
+        self._dtmf_debug = bool(getattr(cfg, "dtmf_debug", False))
+        self._dtmf = DtmfDecoder(
+            DtmfDecoderConfig(
+                sample_rate=cfg.audio.sample_rate,
+                frame_ms=int(getattr(cfg, "dtmf_frame_ms", 80)),
+                hop_ms=int(getattr(cfg, "dtmf_hop_ms", 40)),
+                min_tone_ms=int(getattr(cfg, "dtmf_min_tone_ms", 80)),
+                energy_gate_db=float(getattr(cfg, "dtmf_energy_gate_db", -38.0)),
+                peak_ratio=float(getattr(cfg, "dtmf_peak_ratio", 6.0)),
+                bandpass_enabled=bool(getattr(cfg, "dtmf_bandpass_enabled", True)),
+            )
+        )
+        self._tone = ToneController(
+            ToneControlConfig(
+                enabled=cfg.dtmf_enabled,
+                secret=cfg.dtmf_secret,
+                command_timeout_sec=cfg.dtmf_command_timeout_sec,
+                digit_gap_timeout_sec=cfg.dtmf_digit_gap_timeout_sec,
+            )
+        )
+        self._program_mode: int = 0
+        self._dtmf_seq: str = ""
+        self._last_dtmf_at: Optional[float] = None
 
         logger.info(
             "Using devices input=%s output=%s",
@@ -65,6 +97,8 @@ class RadioBuddyPipeline:
             threshold_db=self._cfg.vox.threshold_db,
             min_duration_ms=self._cfg.vox.min_duration_ms,
             silence_timeout_sec=self._cfg.vox.silence_timeout_sec,
+            on_chunk=lambda chunk: self._on_audio_chunk(chunk, self._stop_event),
+            stop_event=self._stop_event,
         )
 
     def _speak_phrase(self, phrase: str) -> None:
@@ -84,9 +118,106 @@ class RadioBuddyPipeline:
         logger.info("Playing phrase TTS to radio output")
         play_audio(audio, sr, self._output_device_index)
 
+    def _on_audio_chunk(self, chunk: np.ndarray, stop_event: threading.Event) -> None:
+        # Drive the tone controller even when no tone is detected.
+        for ev in self._tone.tick():
+            self._tone_events.put(ev)
+            self._stop_event.set()
+            stop_event.set()
+
+        digits = self._dtmf.process(chunk)
+        if digits:
+            # Any detected DTMF is treated as a control-channel signal; do not forward
+            # this audio into STT/LLM regardless of app mode.
+            now = time.monotonic()
+            if self._last_dtmf_at is None or (now - self._last_dtmf_at) > self._cfg.dtmf_digit_gap_timeout_sec:
+                self._dtmf_seq = ""
+            self._last_dtmf_at = now
+            self._dtmf_seq = (self._dtmf_seq + "".join(digits))[-32:]
+            logger.info("DTMF digits detected: %s", self._dtmf_seq)
+            if self._ui is not None:
+                self._ui.set_last_dtmf(self._dtmf_seq)
+        for digit in digits:
+            for ev in self._tone.feed_digit(digit):
+                logger.info("DTMF control event: kind=%s command=%s", ev.kind, ev.command)
+                if self._ui is not None:
+                    self._ui.set_last_dtmf_event(f"{ev.kind} {ev.command}".strip())
+                self._tone_events.put(ev)
+                self._stop_event.set()
+                stop_event.set()
+
+    def _apply_program_mode(self, program_mode: int) -> None:
+        """
+        Program modes map to app operating modes:
+          1 -> ai
+          2 -> repeater
+          3 -> dummy
+        """
+        mode_by_program = {1: "ai", 2: "repeater", 3: "dummy"}
+        new_mode = mode_by_program.get(program_mode)
+        if not new_mode:
+            return
+        if getattr(self._cfg, "mode", "ai") == new_mode:
+            self._program_mode = program_mode
+            return
+
+        self._program_mode = program_mode
+        self._cfg.mode = new_mode  # runtime switch (config is used as a state bag here)
+
+        # Rebuild STT/LLM clients so the pipeline behavior actually changes.
+        from .llm import build_llm_client
+        from .stt import build_stt_client
+
+        self._stt = build_stt_client(self._cfg.stt, self._cfg.mode)
+        self._llm = build_llm_client(self._cfg.llm, self._cfg.mode)
+
+    def _drain_tone_events(self) -> bool:
+        """
+        Handle pending tone events (TTS + mode switching).
+        Returns True if at least one event was handled.
+        """
+        handled = False
+        while True:
+            try:
+                ev = self._tone_events.get_nowait()
+            except queue.Empty:
+                break
+            handled = True
+            if ev.kind == "open":
+                # Secret code recognized; do not speak yet. We'll wait for a command or timeout.
+                continue
+            if ev.kind == "accepted":
+                cmd = ev.command
+                self._speak_phrase(f"Кира передает - Код принят - команда {cmd}")
+
+                cmd_to_mode = {"01": 1, "02": 2, "03": 3}
+                program_mode = cmd_to_mode.get(cmd)
+                if program_mode is not None:
+                    self._apply_program_mode(program_mode)
+                    for follow in self._tone.mode_set(program_mode=program_mode, command=cmd):
+                        self._tone_events.put(follow)
+                    continue
+
+                if cmd == "11":
+                    now = datetime.now()
+                    hhmm = now.strftime("%H:%M")
+                    self._speak_phrase(f"Кира передает - Время {hhmm}")
+                    continue
+
+            elif ev.kind == "mode_set":
+                # Speak the *command* number as operator-friendly two digits ("01", "02", "03").
+                self._speak_phrase(f"Кира передает - Режим {ev.command}")
+
+        return handled
+
     def run_forever(self) -> None:
         logger.info("Starting RadioBuddy VOX loop")
         while True:
+            if self._stop_event.is_set():
+                self._stop_event.clear()
+                if self._drain_tone_events():
+                    continue
+
             if self._ui is not None:
                 segment = self._ui.run_listening_until_segment(
                     lambda on_level, on_started, stop_event: record_segment_vox(
@@ -98,11 +229,18 @@ class RadioBuddyPipeline:
                         silence_timeout_sec=self._cfg.vox.silence_timeout_sec,
                         on_level=on_level,
                         on_started=on_started,
+                        on_chunk=lambda chunk: self._on_audio_chunk(chunk, stop_event),
                         stop_event=stop_event,
                     )
                 )
             else:
                 segment = self._record_segment()
+
+            # If we aborted listening due to a DTMF control event, handle it now.
+            if self._stop_event.is_set():
+                self._stop_event.clear()
+                if self._drain_tone_events():
+                    continue
 
             if segment is None:
                 logger.info("No segment captured (interrupted or quiet). Continuing.")

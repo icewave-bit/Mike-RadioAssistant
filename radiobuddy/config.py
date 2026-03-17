@@ -61,6 +61,17 @@ class AppConfig:
     tts: TtsConfig
     mode: str
     reset_phrases: list[str]
+    dtmf_enabled: bool
+    dtmf_secret: str
+    dtmf_command_timeout_sec: float
+    dtmf_digit_gap_timeout_sec: float
+    dtmf_min_tone_ms: int
+    dtmf_energy_gate_db: float
+    dtmf_peak_ratio: float
+    dtmf_debug: bool
+    dtmf_frame_ms: int
+    dtmf_hop_ms: int
+    dtmf_bandpass_enabled: bool
 
 
 def load_config() -> AppConfig:
@@ -150,6 +161,18 @@ def load_config() -> AppConfig:
     reset_raw = os.getenv("RADIOBUDDY_RESET_PHRASES", default_reset_phrases)
     reset_phrases = [p.strip().lower() for p in reset_raw.split("|") if p.strip()]
 
+    dtmf_enabled = (os.getenv("DTMF_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off"))
+    dtmf_secret = (os.getenv("DTMF_SECRET", "0909").strip() or "0909")
+    dtmf_command_timeout_sec = float(os.getenv("DTMF_COMMAND_TIMEOUT_SEC", "12"))
+    dtmf_digit_gap_timeout_sec = float(os.getenv("DTMF_DIGIT_GAP_TIMEOUT_SEC", "2.5"))
+    dtmf_frame_ms = int(os.getenv("DTMF_FRAME_MS", "80"))
+    dtmf_hop_ms = int(os.getenv("DTMF_HOP_MS", "40"))
+    dtmf_min_tone_ms = int(os.getenv("DTMF_MIN_TONE_MS", "120"))
+    dtmf_energy_gate_db = float(os.getenv("DTMF_ENERGY_GATE_DB", "-50"))
+    dtmf_peak_ratio = float(os.getenv("DTMF_PEAK_RATIO", "2.8"))
+    dtmf_bandpass_enabled = (os.getenv("DTMF_BANDPASS_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off"))
+    dtmf_debug = (os.getenv("DTMF_DEBUG", "0").strip().lower() in ("1", "true", "yes", "on"))
+
     return AppConfig(
         audio=audio,
         vox=vox,
@@ -158,5 +181,16 @@ def load_config() -> AppConfig:
         tts=tts,
         mode=mode,
         reset_phrases=reset_phrases,
+        dtmf_enabled=dtmf_enabled,
+        dtmf_secret=dtmf_secret,
+        dtmf_command_timeout_sec=dtmf_command_timeout_sec,
+        dtmf_digit_gap_timeout_sec=dtmf_digit_gap_timeout_sec,
+        dtmf_min_tone_ms=dtmf_min_tone_ms,
+        dtmf_energy_gate_db=dtmf_energy_gate_db,
+        dtmf_peak_ratio=dtmf_peak_ratio,
+        dtmf_debug=dtmf_debug,
+        dtmf_frame_ms=dtmf_frame_ms,
+        dtmf_hop_ms=dtmf_hop_ms,
+        dtmf_bandpass_enabled=dtmf_bandpass_enabled,
     )
 
